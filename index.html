@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Definite Integral Area Applet</title>
+  <style>
+    :root {
+      --ink: #171b24;
+      --muted: #5c6472;
+      --panel: #e9eef8;
+      --line: #8b9098;
+      --blue: #244a9a;
+      --blue-soft: rgba(36, 74, 154, 0.24);
+      --purple: #6757d7;
+      --red: #ef4054;
+      --pink: #c74775;
+      --shadow: rgba(20, 24, 32, 0.14);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: #f7f8fa;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    main {
+      width: min(1200px, calc(100vw - 20px));
+      margin: 0 auto;
+      padding: 10px 0 24px;
+    }
+
+    .intro {
+      margin: 0 0 10px;
+      font-size: clamp(1rem, 2vw, 1.45rem);
+      line-height: 1.45;
+    }
+
+    .applet {
+      border: 2px solid var(--line);
+      background: #fff;
+      box-shadow: 0 15px 40px var(--shadow);
+      overflow: hidden;
+    }
+
+    .graph-wrap {
+      position: relative;
+      height: min(540px, 54vw);
+      min-height: 390px;
+      background: #fff;
+      touch-action: none;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: grab;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: minmax(270px, 0.9fr) minmax(420px, 1.1fr);
+      gap: 18px 34px;
+      align-items: center;
+      padding: 28px 46px 34px;
+      background: var(--panel);
+      border-top: 3px solid #9ca6c1;
+    }
+
+    .toggles {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, max-content));
+      gap: 18px 42px;
+      align-items: center;
+    }
+
+    label {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #363a43;
+      font-size: clamp(1.08rem, 2.1vw, 1.65rem);
+      font-weight: 800;
+      line-height: 1.15;
+      white-space: nowrap;
+    }
+
+    input[type="checkbox"] {
+      appearance: none;
+      width: 52px;
+      aspect-ratio: 1;
+      flex: 0 0 auto;
+      margin: 0;
+      border: 3px solid #858991;
+      border-radius: 5px;
+      background: #fff;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+    }
+
+    input[type="checkbox"]:checked {
+      border-color: var(--purple);
+      background: var(--purple);
+    }
+
+    input[type="checkbox"]:checked::after {
+      content: "";
+      width: 29px;
+      height: 16px;
+      border-left: 5px solid white;
+      border-bottom: 5px solid white;
+      transform: rotate(-45deg) translate(2px, -2px);
+    }
+
+    .readout {
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+      color: var(--blue);
+      font: 700 clamp(1.18rem, 2.5vw, 1.9rem) Georgia, "Times New Roman", serif;
+    }
+
+    .integral {
+      color: var(--pink);
+      font-size: clamp(1.28rem, 3vw, 2.2rem);
+      white-space: nowrap;
+    }
+
+    @media (max-width: 900px) {
+      .graph-wrap {
+        height: 520px;
+      }
+
+      .controls {
+        grid-template-columns: 1fr;
+        padding: 22px;
+      }
+
+      .toggles {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      label {
+        white-space: normal;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="intro">
+      Explore how a definite integral represents signed area between a curve and the x-axis. Move the
+      bounds of integration, or adjust the curve, and compare net integral with total geometric area.
+    </p>
+
+    <section class="applet" aria-label="Definite integral area applet">
+      <div class="graph-wrap">
+        <canvas id="graph" aria-label="Interactive graph for definite integrals"></canvas>
+      </div>
+
+      <div class="controls">
+        <div class="toggles">
+          <label><input id="adjustCurve" type="checkbox">Adjust curve</label>
+          <label><input id="adjustBounds" type="checkbox" checked>Adjust the bounds of the region</label>
+        </div>
+
+        <div class="readout">
+          <div id="areaReadout">Area of the region: 0.00</div>
+          <div class="integral" id="integralReadout"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const canvas = document.getElementById("graph");
+    const ctx = canvas.getContext("2d");
+    const adjustCurve = document.getElementById("adjustCurve");
+    const adjustBounds = document.getElementById("adjustBounds");
+    const areaReadout = document.getElementById("areaReadout");
+    const integralReadout = document.getElementById("integralReadout");
+
+    const xMin = 0;
+    const xMax = 5;
+    const yMin = -1;
+    const yMax = 1;
+    const hitRadius = 34;
+    const red = "#ef4054";
+    const blue = "#244a9a";
+    const blueFill = "rgba(36, 74, 154, 0.28)";
+    const pink = "#c74775";
+
+    let bounds = { a: 0.42, b: 4.52 };
+    let dragMode = null;
+    let dragIndex = -1;
+
+    const points = [
+      { x: 0.00, y: 0.88, locked: true },
+      { x: 0.55, y: 0.70 },
+      { x: 0.95, y: 0.10 },
+      { x: 1.42, y: -0.38 },
+      { x: 2.45, y: -0.78 },
+      { x: 3.36, y: 0.02 },
+      { x: 3.95, y: 0.46 },
+      { x: 4.55, y: 0.54 },
+      { x: 5.00, y: 0.34, locked: true },
+    ];
+
+    function resize() {
+      const rect = canvas.getBoundingClientRect();
+      const scale = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.max(1, Math.round(rect.width * scale));
+      canvas.height = Math.max(1, Math.round(rect.height * scale));
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      draw();
+    }
+
+    function plotRect() {
+      const w = canvas.getBoundingClientRect().width;
+      const h = canvas.getBoundingClientRect().height;
+      return {
+        left: 74,
+        right: w - 34,
+        top: 28,
+        bottom: h - 58,
+        width: w - 108,
+        height: h - 86,
+      };
+    }
+
+    function sx(x) {
+      const r = plotRect();
+      return r.left + (x - xMin) / (xMax - xMin) * r.width;
+    }
+
+    function sy(y) {
+      const r = plotRect();
+      return r.bottom - (y - yMin) / (yMax - yMin) * r.height;
+    }
+
+    function graphPoint(px, py) {
+      const r = plotRect();
+      const x = xMin + (px - r.left) / r.width * (xMax - xMin);
+      const y = yMin + (r.bottom - py) / r.height * (yMax - yMin);
+      return { x: clamp(x, xMin, xMax), y: clamp(y, yMin, yMax) };
+    }
+
+    function clamp(value, lo, hi) {
+      return Math.max(lo, Math.min(hi, value));
+    }
+
+    function pointSlope(index) {
+      if (index === 0) {
+        return (points[1].y - points[0].y) / (points[1].x - points[0].x);
+      }
+      if (index === points.length - 1) {
+        const p = points[index - 1];
+        const q = points[index];
+        return (q.y - p.y) / (q.x - p.x);
+      }
+      const p = points[index - 1];
+      const q = points[index + 1];
+      return (q.y - p.y) / (q.x - p.x);
+    }
+
+    function interpolate(x) {
+      if (x <= points[0].x) return points[0].y;
+      for (let i = 0; i < points.length - 1; i += 1) {
+        const p = points[i];
+        const q = points[i + 1];
+        if (x <= q.x) {
+          const t = (x - p.x) / (q.x - p.x);
+          const h = q.x - p.x;
+          const m0 = pointSlope(i);
+          const m1 = pointSlope(i + 1);
+          const t2 = t * t;
+          const t3 = t2 * t;
+          const h00 = 2 * t3 - 3 * t2 + 1;
+          const h10 = t3 - 2 * t2 + t;
+          const h01 = -2 * t3 + 3 * t2;
+          const h11 = t3 - t2;
+          return clamp(h00 * p.y + h10 * h * m0 + h01 * q.y + h11 * h * m1, yMin, yMax);
+        }
+      }
+      return points[points.length - 1].y;
+    }
+
+    function integrate(absValue = false) {
+      const a = absValue ? Math.min(bounds.a, bounds.b) : bounds.a;
+      const b = absValue ? Math.max(bounds.a, bounds.b) : bounds.b;
+      const n = 900;
+      const dx = (b - a) / n;
+      let sum = 0;
+      for (let i = 0; i < n; i += 1) {
+        const x1 = a + i * dx;
+        const x2 = x1 + dx;
+        const y1 = interpolate(x1);
+        const y2 = interpolate(x2);
+        sum += (absValue ? Math.abs(y1) + Math.abs(y2) : y1 + y2) * 0.5 * dx;
+      }
+      return sum;
+    }
+
+    function fmt(value) {
+      const rounded = Math.round(value * 100) / 100;
+      return Object.is(rounded, -0) ? "0.00" : rounded.toFixed(2);
+    }
+
+    function curvePath(fromX = xMin, toX = xMax) {
+      const path = new Path2D();
+      const steps = 520;
+      for (let i = 0; i <= steps; i += 1) {
+        const x = fromX + (toX - fromX) * i / steps;
+        const y = interpolate(x);
+        if (i === 0) path.moveTo(sx(x), sy(y));
+        else path.lineTo(sx(x), sy(y));
+      }
+      return path;
+    }
+
+    function drawAxes() {
+      const r = plotRect();
+      const zeroY = sy(0);
+      ctx.strokeStyle = "#2f333a";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(r.left, zeroY);
+      ctx.lineTo(r.right + 16, zeroY);
+      ctx.moveTo(r.left, r.bottom);
+      ctx.lineTo(r.left, r.top - 14);
+      ctx.stroke();
+
+      ctx.fillStyle = "#2f333a";
+      ctx.beginPath();
+      ctx.moveTo(r.right + 16, zeroY);
+      ctx.lineTo(r.right + 2, zeroY - 7);
+      ctx.lineTo(r.right + 2, zeroY + 7);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(r.left, r.top - 14);
+      ctx.lineTo(r.left - 7, r.top + 2);
+      ctx.lineTo(r.left + 7, r.top + 2);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.font = "700 18px Georgia, serif";
+      ctx.fillText("x", r.right + 20, zeroY + 23);
+      ctx.fillText("y", r.left + 12, r.top - 2);
+
+      ctx.font = "14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (let x = 0; x <= 5; x += 1) {
+        const px = sx(x);
+        ctx.strokeStyle = "#ccd3df";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(px, r.top);
+        ctx.lineTo(px, r.bottom);
+        ctx.stroke();
+        ctx.fillStyle = "#434852";
+        ctx.fillText(String(x), px, zeroY + 8);
+      }
+
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (const y of [-1, -0.5, 0.5, 1]) {
+        const py = sy(y);
+        ctx.strokeStyle = "#e3e7ef";
+        ctx.beginPath();
+        ctx.moveTo(r.left, py);
+        ctx.lineTo(r.right, py);
+        ctx.stroke();
+        ctx.fillStyle = "#434852";
+        ctx.fillText(String(y), r.left - 10, py);
+      }
+      ctx.textAlign = "left";
+    }
+
+    function drawShadedRegion() {
+      const a = Math.min(bounds.a, bounds.b);
+      const b = Math.max(bounds.a, bounds.b);
+      const steps = 520;
+      const zeroY = sy(0);
+      ctx.beginPath();
+      ctx.moveTo(sx(a), zeroY);
+      for (let i = 0; i <= steps; i += 1) {
+        const x = a + (b - a) * i / steps;
+        ctx.lineTo(sx(x), sy(interpolate(x)));
+      }
+      ctx.lineTo(sx(b), zeroY);
+      ctx.closePath();
+      ctx.fillStyle = blueFill;
+      ctx.fill();
+    }
+
+    function drawCurve() {
+      ctx.strokeStyle = blue;
+      ctx.lineWidth = 4;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.stroke(curvePath());
+    }
+
+    function drawBound(x) {
+      const y = interpolate(x);
+      ctx.strokeStyle = "rgba(45, 54, 68, 0.78)";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(sx(x), sy(0));
+      ctx.lineTo(sx(x), sy(y));
+      ctx.stroke();
+      drawDot(sx(x), sy(0), 15, adjustBounds.checked);
+    }
+
+    function drawCurveControls() {
+      if (!adjustCurve.checked) return;
+      for (let i = 1; i < points.length - 1; i += 1) {
+        drawDot(sx(points[i].x), sy(points[i].y), 11, true);
+      }
+    }
+
+    function drawDot(x, y, radius, active) {
+      ctx.fillStyle = active ? "rgba(239,64,84,0.28)" : "rgba(239,64,84,0.08)";
+      ctx.beginPath();
+      ctx.arc(x, y, radius + 17, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = red;
+      ctx.strokeStyle = "#1b1115";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function draw() {
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0, 0, rect.width, rect.height);
+      drawAxes();
+      drawShadedRegion();
+      drawCurve();
+      drawBound(bounds.a);
+      drawBound(bounds.b);
+      drawCurveControls();
+      updateReadout();
+    }
+
+    function updateReadout() {
+      const signed = integrate(false);
+      const area = integrate(true);
+      areaReadout.textContent = `Area of the region: ${fmt(area)}`;
+      integralReadout.innerHTML = `&int;<sub>${fmt(bounds.a)}</sub><sup>${fmt(bounds.b)}</sup> f(x) dx = ${fmt(signed)}`;
+    }
+
+    function pointer(event) {
+      const rect = canvas.getBoundingClientRect();
+      return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    }
+
+    function nearestBound(p) {
+      const candidates = [
+        { key: "a", x: sx(bounds.a), y: sy(0) },
+        { key: "b", x: sx(bounds.b), y: sy(0) },
+      ];
+      let best = null;
+      for (const candidate of candidates) {
+        const distance = Math.hypot(p.x - candidate.x, p.y - candidate.y);
+        if (distance <= hitRadius && (!best || distance < best.distance)) {
+          best = { ...candidate, distance };
+        }
+      }
+      return best;
+    }
+
+    function nearestCurveControl(p) {
+      let best = null;
+      for (let i = 1; i < points.length - 1; i += 1) {
+        const px = sx(points[i].x);
+        const py = sy(points[i].y);
+        const distance = Math.hypot(p.x - px, p.y - py);
+        if (distance <= hitRadius && (!best || distance < best.distance)) {
+          best = { index: i, distance };
+        }
+      }
+      return best;
+    }
+
+    canvas.addEventListener("pointerdown", event => {
+      const p = pointer(event);
+      const curveHit = adjustCurve.checked ? nearestCurveControl(p) : null;
+      const boundHit = adjustBounds.checked ? nearestBound(p) : null;
+      if (curveHit && (!boundHit || curveHit.distance <= boundHit.distance)) {
+        dragMode = "curve";
+        dragIndex = curveHit.index;
+      } else if (boundHit) {
+        dragMode = boundHit.key;
+      } else {
+        dragMode = null;
+      }
+      if (dragMode) {
+        canvas.setPointerCapture(event.pointerId);
+      }
+    });
+
+    canvas.addEventListener("pointermove", event => {
+      if (!dragMode) return;
+      const pointerPosition = pointer(event);
+      const p = graphPoint(pointerPosition.x, pointerPosition.y);
+      if (dragMode === "curve") {
+        points[dragIndex].y = p.y;
+      } else if (dragMode === "a") {
+        bounds.a = clamp(p.x, xMin, xMax);
+      } else if (dragMode === "b") {
+        bounds.b = clamp(p.x, xMin, xMax);
+      }
+      draw();
+    });
+
+    function endDrag(event) {
+      dragMode = null;
+      dragIndex = -1;
+      if (canvas.hasPointerCapture(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+    }
+
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+    adjustCurve.addEventListener("change", draw);
+    adjustBounds.addEventListener("change", draw);
+    window.addEventListener("resize", resize);
+    resize();
+  </script>
+</body>
+</html>
